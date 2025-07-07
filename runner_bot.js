@@ -4,7 +4,7 @@ const path = require('path');
 const https = require('https');
 const { exec, spawn } = require('child_process');
 
-const BOT_TOKEN = '8114062897:AAHmK-0d9cvB8SHYLuDfr6U5zuMIHJsrxR8';
+const BOT_TOKEN = '8114062897:AAF3iAO6t1NV_6fQHQ0BuRcmZwxIeasuiL4';
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 const UPLOAD_DIR = path.join(__dirname, 'userbot');
