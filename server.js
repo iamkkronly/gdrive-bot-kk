@@ -8,19 +8,16 @@ const mime = require('mime-types');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// === Google OAuth2 credentials ===
-const CLIENT_ID = "565413172042-05blvf0fqstm3m855g5hpg1om5p3lopu.apps.googleusercontent.com";
-const CLIENT_SECRET = "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";
-
-// 🔁 Replace this with your Render domain callback URL:
-const REDIRECT_URI = "https://your-app-name.onrender.com/oauth2callback";
+// === Your New Google OAuth2 Credentials ===
+const CLIENT_ID = "565413172042-5vmtcbeebff0neonrph9tur33ogcqb5t.apps.googleusercontent.com";
+const CLIENT_SECRET = "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";
+const REDIRECT_URI = "https://gdrive-bot-kk.onrender.com/oauth2callback"; // your Render domain
 
 // === Telegram Bot Token ===
 const BOT_TOKEN = "8114062897:AAHmK-0d9cvB8SHYLuDfr6U5zuMIHJsrxR8";
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// === Temporary in-memory data ===
-let authClients = {};
+// In-memory storage
 let fileQueue = {};
 
 const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
@@ -43,8 +40,10 @@ async function uploadToDrive(auth, filePath, fileName) {
     body: fs.createReadStream(filePath)
   };
 
+  const fileMeta = { name: fileName };
+
   const file = await drive.files.create({
-    resource: { name: fileName },
+    resource: fileMeta,
     media,
     fields: 'id, webViewLink'
   });
@@ -52,6 +51,7 @@ async function uploadToDrive(auth, filePath, fileName) {
   return file.data.webViewLink;
 }
 
+// Handle document uploads from Telegram
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
 
@@ -83,7 +83,7 @@ bot.on('message', async (msg) => {
   }
 });
 
-// === Google OAuth2 callback
+// Google OAuth2 callback
 app.get('/oauth2callback', async (req, res) => {
   const { code, state } = req.query;
   const chatId = parseInt(state);
@@ -101,13 +101,12 @@ app.get('/oauth2callback', async (req, res) => {
 
     bot.sendMessage(chatId, `✅ Uploaded to Google Drive:\n${link}`);
     delete fileQueue[chatId];
-    res.send("✅ Upload successful! You may return to Telegram.");
-
+    res.send("✅ Upload successful! You may close this tab.");
   } catch (err) {
     console.error(err);
     res.send("❌ Authorization failed.");
   }
 });
 
-app.get('/', (req, res) => res.send('🚀 Bot is running!'));
+app.get('/', (req, res) => res.send('🚀 Bot is running.'));
 app.listen(PORT, () => console.log(`Bot running on port ${PORT}`));
