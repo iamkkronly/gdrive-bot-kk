@@ -6,57 +6,63 @@ const fs = require('fs');
 const mime = require('mime-types');
 
 const app = express();
+app.use(express.json());
+
 const PORT = process.env.PORT || 3000;
 
-// === Your New Google OAuth2 Credentials ===
+// 🛡️ Replace with your actual Render domain
+const APP_URL = "https://gdrive-bot-kk.onrender.com";
+
+// === Google OAuth2 credentials ===
 const CLIENT_ID = "565413172042-5vmtcbeebff0neonrph9tur33ogcqb5t.apps.googleusercontent.com";
 const CLIENT_SECRET = "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";
-const REDIRECT_URI = "https://gdrive-bot-kk.onrender.com/oauth2callback"; // your Render domain
+const REDIRECT_URI = `${APP_URL}/oauth2callback`;
 
 // === Telegram Bot Token ===
 const BOT_TOKEN = "8114062897:AAHmK-0d9cvB8SHYLuDfr6U5zuMIHJsrxR8";
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// In-memory storage
+// Setup Telegram bot in webhook mode
+const bot = new TelegramBot(BOT_TOKEN);
+bot.setWebHook(`${APP_URL}/bot${BOT_TOKEN}`);
+
+// Routes
+app.post(`/bot${BOT_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// In-memory storage for temporary files
 let fileQueue = {};
 
+// OAuth2 client
 const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 
 function getAuthUrl(chatId) {
-  const scopes = ['https://www.googleapis.com/auth/drive.file'];
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: scopes,
-    state: chatId.toString(),
+    scope: ['https://www.googleapis.com/auth/drive.file'],
+    state: chatId.toString()
   });
 }
 
 async function uploadToDrive(auth, filePath, fileName) {
   const drive = google.drive({ version: 'v3', auth });
   const mimeType = mime.lookup(filePath) || 'application/octet-stream';
-  const media = {
-    mimeType,
-    body: fs.createReadStream(filePath)
-  };
-
-  const fileMeta = { name: fileName };
-
-  const file = await drive.files.create({
-    resource: fileMeta,
+  const media = { mimeType, body: fs.createReadStream(filePath) };
+  const res = await drive.files.create({
+    resource: { name: fileName },
     media,
     fields: 'id, webViewLink'
   });
-
-  return file.data.webViewLink;
+  return res.data.webViewLink;
 }
 
-// Handle document uploads from Telegram
+// Handle incoming Telegram messages
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
-
   if (!msg.document) {
-    return bot.sendMessage(chatId, "📎 Please send a document to upload to Google Drive.");
+    return bot.sendMessage(chatId, "📎 Please send a document to upload.");
   }
 
   const fileId = msg.document.file_id;
@@ -65,48 +71,47 @@ bot.on('message', async (msg) => {
 
   try {
     const file = await bot.getFile(fileId);
-    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+    const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
 
     const writer = fs.createWriteStream(localPath);
-    const res = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
-    res.data.pipe(writer);
+    const response = await axios({ url, method: 'GET', responseType: 'stream' });
+    response.data.pipe(writer);
 
     writer.on('finish', async () => {
       fileQueue[chatId] = { path: localPath, name: fileName };
-      const url = getAuthUrl(chatId);
-      await bot.sendMessage(chatId, `🔐 Click to authorize upload:\n${url}`);
+      const authUrl = getAuthUrl(chatId);
+      await bot.sendMessage(chatId, `🔐 Authorize upload here:\n${authUrl}`);
     });
-
   } catch (err) {
     console.error(err);
-    bot.sendMessage(chatId, "❌ Failed to download file.");
+    bot.sendMessage(chatId, "❌ Download failed.");
   }
 });
 
-// Google OAuth2 callback
+// OAuth2 callback endpoint
 app.get('/oauth2callback', async (req, res) => {
   const { code, state } = req.query;
   const chatId = parseInt(state);
-
   try {
     const { tokens } = await oauth2Client.getToken(code);
     const userAuth = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
     userAuth.setCredentials(tokens);
 
-    const fileData = fileQueue[chatId];
-    if (!fileData) return res.send("⛔ No file found.");
+    const q = fileQueue[chatId];
+    if (!q) return res.send("⛔ No pending file.");
 
-    const link = await uploadToDrive(userAuth, fileData.path, fileData.name);
-    fs.unlinkSync(fileData.path);
+    const link = await uploadToDrive(userAuth, q.path, q.name);
+    fs.unlinkSync(q.path);
 
-    bot.sendMessage(chatId, `✅ Uploaded to Google Drive:\n${link}`);
+    await bot.sendMessage(chatId, `✅ Uploaded:\n${link}`);
     delete fileQueue[chatId];
-    res.send("✅ Upload successful! You may close this tab.");
+    res.send("✅ All set! You can close this tab.");
   } catch (err) {
     console.error(err);
     res.send("❌ Authorization failed.");
   }
 });
 
-app.get('/', (req, res) => res.send('🚀 Bot is running.'));
-app.listen(PORT, () => console.log(`Bot running on port ${PORT}`));
+// Health check endpoint
+app.get('/', (req, res) => res.send('🚀 Bot is live'));
+app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
