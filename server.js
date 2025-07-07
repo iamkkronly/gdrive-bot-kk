@@ -1,117 +1,52 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
-const { google } = require('googleapis');
 const axios = require('axios');
-const fs = require('fs');
-const mime = require('mime-types');
 
 const app = express();
-app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+// Telegram Bot Token
+const TOKEN = '8114062897:AAHmK-0d9cvB8SHYLuDfr6U5zuMIHJsrxR8';
+const bot = new TelegramBot(TOKEN, { polling: true });
 
-// 🛡️ Replace with your actual Render domain
-const APP_URL = "https://gdrive-bot-kk.onrender.com";
-
-// === Google OAuth2 credentials ===
-const CLIENT_ID = "565413172042-5vmtcbeebff0neonrph9tur33ogcqb5t.apps.googleusercontent.com";
-const CLIENT_SECRET = "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";
-const REDIRECT_URI = `${APP_URL}/oauth2callback`;
-
-// === Telegram Bot Token ===
-const BOT_TOKEN = "8114062897:AAHmK-0d9cvB8SHYLuDfr6U5zuMIHJsrxR8";
-
-// Setup Telegram bot in webhook mode
-const bot = new TelegramBot(BOT_TOKEN);
-bot.setWebHook(`${APP_URL}/bot${BOT_TOKEN}`);
-
-// Routes
-app.post(`/bot${BOT_TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
+// Start command
+bot.onText(/\/start/, (msg) => {
+  bot.sendMessage(
+    msg.chat.id,
+    `📘 *Welcome to Dictionary Bot!*\n\nSend me any English word and I’ll reply with its definition.\n\nExample:\n\`apple\``,
+    { parse_mode: 'Markdown' }
+  );
 });
 
-// In-memory storage for temporary files
-let fileQueue = {};
-
-// OAuth2 client
-const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-
-function getAuthUrl(chatId) {
-  return oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    prompt: 'consent',
-    scope: ['https://www.googleapis.com/auth/drive.file'],
-    state: chatId.toString()
-  });
-}
-
-async function uploadToDrive(auth, filePath, fileName) {
-  const drive = google.drive({ version: 'v3', auth });
-  const mimeType = mime.lookup(filePath) || 'application/octet-stream';
-  const media = { mimeType, body: fs.createReadStream(filePath) };
-  const res = await drive.files.create({
-    resource: { name: fileName },
-    media,
-    fields: 'id, webViewLink'
-  });
-  return res.data.webViewLink;
-}
-
-// Handle incoming Telegram messages
+// Word handler
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
-  if (!msg.document) {
-    return bot.sendMessage(chatId, "📎 Please send a document to upload.");
-  }
+  const word = msg.text?.trim().toLowerCase();
 
-  const fileId = msg.document.file_id;
-  const fileName = msg.document.file_name;
-  const localPath = `./temp-${chatId}-${fileName}`;
+  if (!word || word.startsWith('/')) return;
 
   try {
-    const file = await bot.getFile(fileId);
-    const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+    const res = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+    const data = res.data[0];
 
-    const writer = fs.createWriteStream(localPath);
-    const response = await axios({ url, method: 'GET', responseType: 'stream' });
-    response.data.pipe(writer);
+    const meanings = data.meanings.map((m) => {
+      const def = m.definitions[0].definition;
+      return `🔹 *${m.partOfSpeech}*: ${def}`;
+    }).join('\n\n');
 
-    writer.on('finish', async () => {
-      fileQueue[chatId] = { path: localPath, name: fileName };
-      const authUrl = getAuthUrl(chatId);
-      await bot.sendMessage(chatId, `🔐 Authorize upload here:\n${authUrl}`);
-    });
+    const reply = `📖 *${data.word}*\n\n${meanings}`;
+    bot.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
+
   } catch (err) {
-    console.error(err);
-    bot.sendMessage(chatId, "❌ Download failed.");
+    bot.sendMessage(chatId, `❌ Sorry, no definition found for *${word}*.`, { parse_mode: 'Markdown' });
   }
 });
 
-// OAuth2 callback endpoint
-app.get('/oauth2callback', async (req, res) => {
-  const { code, state } = req.query;
-  const chatId = parseInt(state);
-  try {
-    const { tokens } = await oauth2Client.getToken(code);
-    const userAuth = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-    userAuth.setCredentials(tokens);
-
-    const q = fileQueue[chatId];
-    if (!q) return res.send("⛔ No pending file.");
-
-    const link = await uploadToDrive(userAuth, q.path, q.name);
-    fs.unlinkSync(q.path);
-
-    await bot.sendMessage(chatId, `✅ Uploaded:\n${link}`);
-    delete fileQueue[chatId];
-    res.send("✅ All set! You can close this tab.");
-  } catch (err) {
-    console.error(err);
-    res.send("❌ Authorization failed.");
-  }
+// Render health check
+app.get('/', (req, res) => {
+  res.send('✅ Dictionary Bot is running!');
 });
 
-// Health check endpoint
-app.get('/', (req, res) => res.send('🚀 Bot is live'));
-app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
