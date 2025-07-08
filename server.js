@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
@@ -9,35 +8,29 @@ const { exec, spawn, execSync } = require('child_process');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CONFIG
-const BOT_TOKEN = '8114062897:AAHPpGYZ2Il6dJL2gRfktspoWWMSq-Qp3y4';
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+const BOT_TOKEN = '8114062897:AAHjV2UeaiNzNlcqsPAhzsi1CVkd3Xszhcc';
+const ADMIN_ID = 6705618257;
 
-const ADMIN_ID = 6705618257; // Your Telegram ID
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 const BASE_DIR = __dirname;
 const UPLOAD_DIR = path.join(BASE_DIR, 'userbot');
 const USERS_FILE = path.join(BASE_DIR, 'users.json');
 const KEEP_FILES = ['server.js', 'package.json', 'users.json', 'node_modules'];
 
-// Store running child processes per user
 const userBots = {};
 
-// Ensure folders exist
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify([]));
 
-// Helper to check admin
 function isAdmin(chatId) {
   return chatId === ADMIN_ID;
 }
 
-// Express route for UptimeRobot
 app.get('/', (req, res) => {
   res.send('🤖 Telegram Bot Runner is live.');
 });
 
-// /start command
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   let users = JSON.parse(fs.readFileSync(USERS_FILE));
@@ -45,11 +38,9 @@ bot.onText(/\/start/, (msg) => {
     users.push(chatId);
     fs.writeFileSync(USERS_FILE, JSON.stringify(users));
   }
-
   bot.sendMessage(chatId, '👋 Send me your `bot.js` and `package.json`. I will install and run it!\n\nCommands: /stop, /restart, /status, /files');
 });
 
-// /stop command
 bot.onText(/\/stop/, (msg) => {
   const chatId = msg.chat.id;
   if (userBots[chatId]?.process) {
@@ -65,7 +56,6 @@ bot.onText(/\/stop/, (msg) => {
   }
 });
 
-// /restart command
 bot.onText(/\/restart/, (msg) => {
   const chatId = msg.chat.id;
   const botPath = path.join(UPLOAD_DIR, 'bot.js');
@@ -103,7 +93,6 @@ bot.onText(/\/restart/, (msg) => {
   });
 });
 
-// /status command
 bot.onText(/\/status/, (msg) => {
   const chatId = msg.chat.id;
   const botData = userBots[chatId];
@@ -117,7 +106,6 @@ bot.onText(/\/status/, (msg) => {
   }
 });
 
-// /files command
 bot.onText(/\/files/, (msg) => {
   const chatId = msg.chat.id;
   fs.readdir(UPLOAD_DIR, (err, files) => {
@@ -133,7 +121,6 @@ bot.onText(/\/files/, (msg) => {
 
 // Admin commands
 
-// /cleanall
 bot.onText(/\/cleanall/, (msg) => {
   const chatId = msg.chat.id;
   if (!isAdmin(chatId)) return bot.sendMessage(chatId, '⛔ Not authorized.');
@@ -142,7 +129,6 @@ bot.onText(/\/cleanall/, (msg) => {
     if (err) return bot.sendMessage(chatId, '❌ Error reading directory.');
 
     let deletedCount = 0;
-
     files.forEach(file => {
       if (!KEEP_FILES.includes(file)) {
         const p = path.join(BASE_DIR, file);
@@ -150,32 +136,27 @@ bot.onText(/\/cleanall/, (msg) => {
         deletedCount++;
       }
     });
-
     bot.sendMessage(chatId, `🧹 Cleaned ${deletedCount} file(s).`);
   });
 });
 
-// /shutdown
 bot.onText(/\/shutdown/, (msg) => {
   const chatId = msg.chat.id;
   if (!isAdmin(chatId)) return bot.sendMessage(chatId, '⛔ Not authorized.');
-
   bot.sendMessage(chatId, '🔌 Shutting down server...').then(() => {
     setTimeout(() => process.exit(0), 1000);
   });
 });
 
-// /reboot
+// ✅ FIXED reboot here
 bot.onText(/\/reboot/, (msg) => {
   const chatId = msg.chat.id;
   if (!isAdmin(chatId)) return bot.sendMessage(chatId, '⛔ Not authorized.');
-
   bot.sendMessage(chatId, '♻️ Rebooting server...').then(() => {
-    setTimeout(() => process.exit(1), 1000); // Exit code 1 triggers restart
+    setTimeout(() => process.exit(0), 1000); // exit 0 instead of 1
   });
 });
 
-// Handle uploaded files
 bot.on('document', async (msg) => {
   const chatId = msg.chat.id;
   const file = msg.document;
@@ -233,7 +214,6 @@ bot.on('document', async (msg) => {
   });
 });
 
-// Cleanup Function
 function runCleanup(reason, cb = null) {
   fs.readdir(BASE_DIR, (err, items) => {
     if (err) return;
@@ -261,7 +241,6 @@ function runCleanup(reason, cb = null) {
   });
 }
 
-// Daily cleanup every hour
 setInterval(() => {
   const now = Date.now();
   const cutoff = now - 86400000;
@@ -283,17 +262,15 @@ setInterval(() => {
   });
 }, 3600000);
 
-// Disk space monitor every 30 mins
 setInterval(() => {
   try {
     const usage = execSync(`df -h /`).toString().split('\n')[1].split(/\s+/)[4].replace('%', '');
     const used = parseInt(usage);
-    if (used >= 80) runCleanup('disk80', () => setTimeout(() => process.exit(1), 5000));
-    else if (used >= 70) runCleanup('disk70', () => setTimeout(() => process.exit(1), 5000));
+    if (used >= 80) runCleanup('disk80', () => setTimeout(() => process.exit(0), 5000));
+    else if (used >= 70) runCleanup('disk70', () => setTimeout(() => process.exit(0), 5000));
   } catch {}
 }, 1800000);
 
-// Start server
 app.listen(PORT, () => {
   console.log(`🌐 Server running on port ${PORT}`);
 });
