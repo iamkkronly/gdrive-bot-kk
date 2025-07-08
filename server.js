@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // CONFIG
-const BOT_TOKEN = '8114062897:AAEEHfOaEEnZdYCVcssvWQJwr4OKfissgmo';
+const BOT_TOKEN = '8114062897:AAHPpGYZ2Il6dJL2gRfktspoWWMSq-Qp3y4';
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 const ADMIN_ID = 6705618257; // Your Telegram ID
